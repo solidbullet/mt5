@@ -142,6 +142,7 @@ bool FillArrayFromBuffer(double &ratio_buffer[],  // 标准偏差线的指标缓
    double         iStdDevBuffer[]; 
    double         iMaBuffer[];
    double         close[]; 
+   ArrayInitialize(close,0.0);
    ArraySetAsSeries(iStdDevBuffer,true);
    ArraySetAsSeries(iMaBuffer,true);
    ArraySetAsSeries(close,true);
