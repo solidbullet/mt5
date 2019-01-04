@@ -1,0 +1,545 @@
+//+------------------------------------------------------------------+
+//|                                                   TradePanel.mq5 |
+//|                                              Copyright 2015, DNG |
+//|                                      https://forex-start.ucoz.ua |
+//+------------------------------------------------------------------+
+#property copyright "Copyright 2015, DNG"
+#property link      "https://forex-start.ucoz.ua"
+#property version   "1.00"
+
+#include <Controls\Dialog.mqh>
+#include <Controls\Label.mqh>
+#include <Controls\Button.mqh>
+#include <ChartObjects\ChartObjectsLines.mqh>
+#include <Trade\AccountInfo.mqh>
+#include <Trade\Trade.mqh>
+#include <Trade\PositionInfo.mqh>
+input double lots = 1;
+input int SL_PIP = 50;
+//+------------------------------------------------------------------+
+//| Resources                                                        |
+//+------------------------------------------------------------------+
+#resource "\\Include\\Controls\\res\\RadioButtonOn.bmp"
+#resource "\\Include\\Controls\\res\\RadioButtonOff.bmp"
+#resource "\\Include\\Controls\\res\\CheckBoxOn.bmp"
+#resource "\\Include\\Controls\\res\\CheckBoxOff.bmp"
+#resource "\\Include\\Controls\\res\\SpinInc.bmp"
+#resource "\\Include\\Controls\\res\\SpinDec.bmp"
+
+class CEdit_new : public CEdit
+  {
+public:
+                     CEdit_new(void){};
+                    ~CEdit_new(void){};
+   virtual bool      Save(const int file_handle)
+     {
+      if(file_handle==INVALID_HANDLE)
+        {
+         return false;
+        }
+      string text=Text();
+      FileWriteInteger(file_handle,StringLen(text));
+      return(FileWriteString(file_handle,text)>0); 
+     }
+   virtual bool      Load(const int file_handle)
+     {
+      if(file_handle==INVALID_HANDLE)
+        {
+         return false;
+        }
+      int size=FileReadInteger(file_handle);
+      string text=FileReadString(file_handle,size);
+      return(Text(text));
+     }
+   
+  };
+
+class CBmpButton_new : public CBmpButton
+  {
+public:
+                     CBmpButton_new(void){};
+                    ~CBmpButton_new(void){};
+   virtual bool      Save(const int file_handle)
+    {
+     if(file_handle==INVALID_HANDLE)
+        {
+         return false;
+        }
+      return(FileWriteInteger(file_handle,Pressed()));
+     }
+   virtual bool      Load(const int file_handle)
+     {
+      if(file_handle==INVALID_HANDLE)
+        {
+         return false;
+        }
+      return(Pressed((bool)FileReadInteger(file_handle)));
+     }
+  };
+
+class CTradePanel : public CAppDialog
+  {
+private:
+   #define  Y_STEP   (int)(ClientAreaHeight()/18/4)      // height step betwine elements
+   #define  Y_WIDTH  (int)(ClientAreaHeight()/18)        // height of element
+   #define  BORDER   (int)(ClientAreaHeight()/24)        // distance betwine boder and elements
+   #define  SL_Line_color  clrRed                        // Stop Loss lines color
+   #define  TP_Line_color  clrGreen                      // Take Profit lines color
+             
+   enum label_align
+     {
+      left=-1,
+      right=1,
+      center=0
+     };
+   CLabel            ASK, BID;                        // Display Ask and Bid prices
+   CButton           SELL,BUY;                        // Sell and Buy Buttons
+   CButton           CloseSell,CloseBuy,CloseAll,CloseHalf,BaoBen;     // Close buttons
+   CChartObjectHLine BuySL, SellSL, BuyTP, SellTP;    // Stop Loss and Take Profit Lines
+   //---
+   CAccountInfo      AccountInfo;                     // Class to get account info
+   CTrade            Trade;                           // Class of trade operations
+   CPositionInfo     Posinfo;
+   //--- variables of current values
+   double            cur_lot;                         // Lot of next order
+   int               cur_sl_pips;                     // Stop Loss in pips
+   double            cur_sl_money;                    // Stop Loss in money
+   int               cur_tp_pips;                     // Take Profit in pips
+   double            cur_tp_money;                    // Take Profit in money
+   double            cur_risk_percent;                // Risk in percent
+   double            cur_risk_money;                  // Risk in money
+   bool              RiskByValue;                     // Flag: Risk by Value or Value by Risk
+   //--- Create Label object
+   bool              CreateLabel(const long chart,const int subwindow,CLabel &object,const string text,const uint x,const uint y,label_align align);
+   //--- Create Button
+   bool              CreateButton(const long chart,const int subwindow,CButton &object,const string text,const uint x,const uint y,const uint x_size,const uint y_size);
+   //--- Cleate Edit object
+   bool              CreateEdit(const long chart,const int subwindow,CEdit &object,const string text,const uint x,const uint y,const uint x_size,const uint y_size);
+
+   bool              CreateHLine(long chart, int subwindow,CChartObjectHLine &object,color clr, string comment);
+   //--- On Event functions
+
+   void              BuyClick();                                     // Click BUY button
+   void              SellClick();                                    // Click SELL button
+   void              CloseBuyClick();                                // Click CLOSE BUY button
+   void              CloseSellClick();                               // Click CLOSE SELL button
+   void              CloseClick();                                   // Click CLOSE ALL button
+   void              CloseHalfClick();                                   // Click CLOSE ALL button
+   void              BaoBenClick();                                   // Click CLOSE ALL button
+   //--- Correction value functions
+   double            NormalizeLots(double lots);                     // Normalize lot's size
+
+   
+public:
+                     CTradePanel(void);
+                    ~CTradePanel(void){};
+  //--- Create function
+   virtual bool      Create(const long chart,const string name,const int subwin=0,const int x1=20,const int y1=20,const int x2=320,const int y2=420);
+   virtual void      OnTick(void);
+   virtual bool      OnEvent(const int id,const long &lparam, const double &dparam, const string &sparam);
+   virtual bool      Run(void);
+   virtual void      Destroy(const int reason);
+
+  };
+
+CTradePanel TradePanel;
+//+------------------------------------------------------------------+
+//| Expert initialization function                                   |
+//+------------------------------------------------------------------+
+int OnInit()
+  {
+//---
+   // Creat Trade Panel
+   if(!TradePanel.Create(ChartID(),"Trade Panel"))
+     {
+      return (INIT_FAILED);
+     }
+   // Run Trade Panel
+   TradePanel.Run();
+//---
+   return(INIT_SUCCEEDED);
+  }
+//+------------------------------------------------------------------+
+//| Expert deinitialization function                                 |
+//+------------------------------------------------------------------+
+void OnDeinit(const int reason)
+  {
+//---
+   TradePanel.Destroy(reason);
+  }
+//+------------------------------------------------------------------+
+//| Expert tick function                                             |
+//+------------------------------------------------------------------+
+void OnTick()
+  {
+//---
+   TradePanel.OnTick();
+  }
+//+------------------------------------------------------------------+
+//| ChartEvent function                                              |
+//+------------------------------------------------------------------+
+void OnChartEvent(const int id,
+                  const long &lparam,
+                  const double &dparam,
+                  const string &sparam)
+  {
+
+   if(TradePanel.OnEvent(id, lparam, dparam, sparam))
+      ChartRedraw();
+  }
+//+------------------------------------------------------------------+
+//| Class initialization function                                    |
+//+------------------------------------------------------------------+
+CTradePanel::CTradePanel(void)
+  {
+   Trade.SetExpertMagicNumber(0);
+   Trade.SetDeviationInPoints(5);
+   int fill=(int)SymbolInfoInteger(_Symbol,SYMBOL_FILLING_MODE);
+   Trade.SetTypeFilling((ENUM_ORDER_TYPE_FILLING)(fill==0 ? 2 : fill-1));
+   return;
+  }
+//+------------------------------------------------------------------+
+//| Creat Trade Panel function                                       |
+//+------------------------------------------------------------------+
+bool CTradePanel::Create(const long chart,const string name,const int subwin=0,const int x1=20,const int y1=20,const int x2=320,const int y2=420)
+  {
+      // At first call creat function of parents class
+   if(!CAppDialog::Create(chart,name,subwin,x1,y1,x2,y2))
+     {
+      return false;
+     }
+   // Calculate coofrdinates and size of BID object
+   // Coordinates calculate in dialog box, not in chart
+   int l_x_left=BORDER;
+   int l_y=BORDER;
+   int y_width=Y_WIDTH;
+   int y_sptep=Y_STEP;
+   // Creat object
+   if(!CreateLabel(chart,subwin,BID,DoubleToString(SymbolInfoDouble(_Symbol,SYMBOL_BID),_Digits),l_x_left,l_y,left))
+     {
+      return false;
+     }
+   // Adjust font size for object
+   if(!BID.FontSize(Y_WIDTH))
+     {
+      return false;
+     }
+   // Repeat same functions for other objects
+   int l_x_right=ClientAreaWidth()-20;
+   if(!CreateLabel(chart,subwin,ASK,DoubleToString(SymbolInfoDouble(_Symbol,SYMBOL_ASK),_Digits),l_x_right,l_y,right))
+     {
+      return false;
+     }
+   if(!ASK.FontSize(Y_WIDTH))
+     {
+      return false;
+     }
+   l_y+=2*Y_WIDTH;
+   int x_size=(int)((ClientAreaWidth()-40)/3-5);
+   if(!CreateButton(chart,subwin,SELL,"SELL",BORDER,l_y,x_size,Y_WIDTH))
+     {
+      return false;
+     }
+   if(!CreateButton(chart,subwin,BUY,"BUY",(l_x_right-x_size),l_y,x_size,Y_WIDTH))
+     {
+      return false;
+     }
+
+
+   l_y+=Y_WIDTH+Y_STEP;
+   if(!CreateButton(chart,subwin,CloseSell,"CLOSE SELL",BORDER,l_y,x_size,Y_WIDTH))
+     {
+      return false;
+     }
+   if(!CreateButton(chart,subwin,CloseAll,"CLOSE ALL",(int)((ClientAreaWidth()-x_size)/2),l_y,x_size,Y_WIDTH))
+     {
+      return false;
+     }
+   CloseAll.ColorBackground(clrRed);
+   if(!CreateButton(chart,subwin,CloseBuy,"CLOSE BUY",(l_x_right-x_size),l_y,x_size,Y_WIDTH))
+     {
+      return false;
+     }
+   l_y+=Y_WIDTH+Y_STEP;
+   if(!CreateButton(chart,subwin,CloseHalf,"平一半",BORDER,l_y,x_size,Y_WIDTH))
+     {
+      return false;
+     }
+   if(!CreateButton(chart,subwin,BaoBen,"保本",(int)((ClientAreaWidth()-x_size)/2),l_y,x_size,Y_WIDTH))
+     {
+      return false;
+     }
+
+    return true;
+  }
+//+------------------------------------------------------------------+
+//| Create Label Object                                              |
+//+------------------------------------------------------------------+
+bool CTradePanel::CreateLabel(const long chart,const int subwindow,CLabel &object,const string text,const uint x,const uint y,label_align align)
+  {
+   // All objects mast to have separate name
+   string name=m_name+"Label"+(string)ObjectsTotal(chart,-1,OBJ_LABEL);
+   //--- Call Create function
+   if(!object.Create(chart,name,subwindow,x,y,0,0))
+     {
+      return false;
+     }
+   //--- Addjust text
+   if(!object.Text(text))
+     {
+      return false;
+     }
+   //--- Aling text to Dialog box's grid
+   ObjectSetInteger(chart,object.Name(),OBJPROP_ANCHOR,(align==left ? ANCHOR_LEFT_UPPER : (align==right ? ANCHOR_RIGHT_UPPER : ANCHOR_UPPER)));
+   //--- Add object to controls
+   if(!Add(object))
+     {
+      return false;
+     }
+   return true;
+  }
+//+------------------------------------------------------------------+
+//| Create Button                                                    |
+//+------------------------------------------------------------------+
+bool CTradePanel::CreateButton(const long chart,const int subwindow,CButton &object,const string text,const uint x,const uint y,const uint x_size,const uint y_size)
+  {
+   // All objects must to have separate name
+   string name=m_name+"Button"+(string)ObjectsTotal(chart,-1,OBJ_BUTTON);
+   //--- Call Create function
+   if(!object.Create(chart,name,subwindow,x,y,x+x_size,y+y_size))
+     {
+      return false;
+     }
+   //--- Addjust text
+   if(!object.Text(text))
+     {
+      return false;
+     }
+   //--- set button flag to unlock
+   object.Locking(false);
+   //--- set button flag to unpressed
+   if(!object.Pressed(false))
+     {
+      return false;
+     }
+   //--- Add object to controls
+   if(!Add(object))
+     {
+      return false;
+     }
+   return true;
+  }
+//+------------------------------------------------------------------+
+//| Create Edit  Object                                              |
+//+------------------------------------------------------------------+
+bool CTradePanel::CreateEdit(const long chart,const int subwindow,CEdit &object,const string text,const uint x,const uint y,const uint x_size,const uint y_size)
+  {
+   // All objects must to have separate name
+   string name=m_name+"Edit"+(string)ObjectsTotal(chart,-1,OBJ_EDIT);
+   //--- Call Create function
+   if(!object.Create(chart,name,subwindow,x,y,x+x_size,y+y_size))
+     {
+      return false;
+     }
+   //--- Addjust text
+   if(!object.Text(text))
+     {
+      return false;
+     }
+   //--- Align text in Edit box
+   if(!object.TextAlign(ALIGN_CENTER))
+     {
+      return false;
+     }
+   //--- set Read only flag to false
+   if(!object.ReadOnly(false))
+     {
+      return false;
+     }
+   //--- Add object to controls
+   if(!Add(object))
+     {
+      return false;
+     }
+   return true;
+  }
+
+//+------------------------------------------------------------------+
+//| Event "New Tick                                                  |
+//+------------------------------------------------------------------+
+void CTradePanel::OnTick(void)
+  { 
+   //--- Change Ask and Bid prices on panel
+   ASK.Text(DoubleToString(SymbolInfoDouble(_Symbol,SYMBOL_ASK),(int)SymbolInfoInteger(_Symbol,SYMBOL_DIGITS)));
+   BID.Text(DoubleToString(SymbolInfoDouble(_Symbol,SYMBOL_BID),(int)SymbolInfoInteger(_Symbol,SYMBOL_DIGITS)));
+   ChartRedraw();
+   return;
+  }
+//+------------------------------------------------------------------+
+//| Event Handling                                                   |
+//+------------------------------------------------------------------+
+EVENT_MAP_BEGIN(CTradePanel)
+
+   ON_EVENT(ON_CLICK,BUY,BuyClick)
+   ON_EVENT(ON_CLICK,SELL,SellClick)
+   ON_EVENT(ON_CLICK,CloseBuy,CloseBuyClick)
+   ON_EVENT(ON_CLICK,CloseSell,CloseSellClick)
+   ON_EVENT(ON_CLICK,CloseAll,CloseClick)
+   ON_EVENT(ON_CLICK,CloseHalf,CloseHalfClick)
+   ON_EVENT(ON_CLICK,BaoBen,BaoBenClick)
+EVENT_MAP_END(CAppDialog)
+//+------------------------------------------------------------------+
+//| Read lots value after edit                                       |
+//+------------------------------------------------------------------+
+
+//+------------------------------------------------------------------+
+//|  Normalization of order volume                                   |
+//+------------------------------------------------------------------+
+double CTradePanel::NormalizeLots(double lots)
+  {
+   double result=0;
+   double minLot=SymbolInfoDouble(_Symbol,SYMBOL_VOLUME_MIN);
+   double maxLot=SymbolInfoDouble(_Symbol,SYMBOL_VOLUME_MAX);
+   double stepLot=SymbolInfoDouble(_Symbol,SYMBOL_VOLUME_STEP);
+   if (lots>0)
+      {
+      lots=MathMax(minLot,lots);
+      lots=minLot+NormalizeDouble((lots-minLot)/stepLot,0)*stepLot;
+      result=MathMin(maxLot,lots);
+      }
+   else
+      result=minLot;   
+   double Buy_FreeMargin=AccountInfo.FreeMarginCheck(_Symbol,ORDER_TYPE_BUY,result,SymbolInfoDouble(_Symbol,SYMBOL_ASK));
+   double Sell_FreeMargin=AccountInfo.FreeMarginCheck(_Symbol,ORDER_TYPE_SELL,result,SymbolInfoDouble(_Symbol,SYMBOL_BID));
+   if(Buy_FreeMargin<0 || Sell_FreeMargin<0)
+     {
+      if(result>minLot)
+        {
+         result=result*AccountInfo.FreeMargin()/(AccountInfo.FreeMargin()-MathMin(Buy_FreeMargin,Sell_FreeMargin));
+         result=NormalizeLots(result);
+        }
+      else
+        {
+         result=0;
+        }
+     }
+   return (NormalizeDouble(result,2));
+  }
+
+
+
+
+//+------------------------------------------------------------------+
+//|  Click BUY button                                                |
+//+------------------------------------------------------------------+
+void CTradePanel::BuyClick(void)
+  {
+   cur_lot=NormalizeLots(lots);
+   //Lots.Text(DoubleToString(cur_lot,2));
+   double price=SymbolInfoDouble(_Symbol,SYMBOL_ASK);
+   double SL=(cur_sl_pips>0 ? NormalizeDouble(price-cur_sl_pips*_Point,_Digits) : 0);
+   double TP=(cur_tp_pips>0 ? NormalizeDouble(price+cur_tp_pips*_Point,_Digits) : 0);
+   if(!Trade.Buy(NormalizeLots(cur_lot),_Symbol,price,price-SL_PIP*_Point,TP,"Trade Panel"))
+      MessageBox("Error of open BUY ORDER "+Trade.ResultComment(),"Trade Panel Error",MB_ICONERROR|MB_OK);;
+   return;
+  }
+//+------------------------------------------------------------------+
+//|  Click SELL button                                               |
+//+------------------------------------------------------------------+
+void CTradePanel::SellClick(void)
+  {
+   cur_lot=NormalizeLots(lots);
+   //Lots.Text(DoubleToString(cur_lot,2));
+   double price=SymbolInfoDouble(_Symbol,SYMBOL_BID);
+   double SL=(cur_sl_pips>0 ? NormalizeDouble(price+cur_sl_pips*_Point,_Digits) : 0);
+   double TP=(cur_tp_pips>0 ? NormalizeDouble(price-cur_tp_pips*_Point,_Digits) : 0);
+   if(!Trade.Sell(NormalizeLots(cur_lot),_Symbol,price,price+SL_PIP*_Point,TP,"Trade Panel"))
+      MessageBox("Error of open BUY ORDER "+Trade.ResultComment(),"Trade Panel Error",MB_ICONERROR|MB_OK);;
+   return;
+  }
+//+------------------------------------------------------------------+
+//|  Click CLOSE BUY button                                          |
+//+------------------------------------------------------------------+
+void CTradePanel::CloseBuyClick(void)
+  {
+   if(!PositionSelect(_Symbol) || PositionGetInteger(POSITION_TYPE)!=POSITION_TYPE_BUY)
+     {
+      return;
+     }
+   if(!Trade.PositionClose(_Symbol))
+      MessageBox("Error of Close position "+Trade.ResultComment(),"Trade Panel Error",MB_ICONERROR|MB_OK);;
+   return;
+  }
+  
+  void CTradePanel::CloseHalfClick(void)
+  {
+     if(Posinfo.Select(_Symbol))
+     {
+      double vol = Posinfo.Volume();
+      Trade.PositionClosePartial(Posinfo.Identifier(),NormalizeLots(0.5*vol),-1);
+     }
+   
+   return;
+  }
+  void CTradePanel::BaoBenClick(void)
+  {
+   
+     if(Posinfo.Select(_Symbol))
+     {
+      double sl = Posinfo.PriceOpen();
+      //Alert(sl," ticket: ",Posinfo.Identifier());
+      Trade.PositionModify(Posinfo.Identifier(),sl,0);
+     }
+   return;
+  }
+//+------------------------------------------------------------------+
+//|  Click CLOSE SELL button                                         |
+//+------------------------------------------------------------------+
+void CTradePanel::CloseSellClick(void)
+  {
+   if(!PositionSelect(_Symbol) || PositionGetInteger(POSITION_TYPE)!=POSITION_TYPE_SELL)
+     {
+      return;
+     }
+   if(!Trade.PositionClose(_Symbol))
+      MessageBox("Error of Close position "+Trade.ResultComment(),"Trade Panel Error",MB_ICONERROR|MB_OK);;
+   return;
+  }
+//+------------------------------------------------------------------+
+//|  Click CLOSE BUY button                                          |
+//+------------------------------------------------------------------+
+void CTradePanel::CloseClick(void)
+  {
+   if(!PositionSelect(_Symbol))
+     {
+      return;
+     }
+   if(!Trade.PositionClose(_Symbol))
+      MessageBox("Error of Close position "+Trade.ResultComment(),"Trade Panel Error",MB_ICONERROR|MB_OK);;
+   return;
+  }
+//+------------------------------------------------------------------+
+//| Run of Trade Panel                                               |
+//+------------------------------------------------------------------+
+bool CTradePanel::Run(void)
+  {
+   //IniFileLoad();
+   cur_lot=StringToDouble(lots);
+   return(CAppDialog::Run());
+  }
+//+------------------------------------------------------------------+
+//| Function of moving horizontal lines                              |
+//+------------------------------------------------------------------+
+
+//+------------------------------------------------------------------+
+//| Application deinitialization function                            |
+//+------------------------------------------------------------------+
+void CTradePanel::Destroy(const int reason)
+  {
+   //BuySL.Delete();
+   //SellSL.Delete();
+   //BuyTP.Delete();
+   //SellTP.Delete();
+   CAppDialog::Destroy(reason);
+   return;
+  }
