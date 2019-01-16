@@ -12,6 +12,7 @@ CTrade trade;
 CPositionInfo posinfo;
 int handle_band,handle_rsi;
 input int sl_point = 50;//增加止损点数
+input int ma_perid = 20;//布林带周期
 //+------------------------------------------------------------------+
 //| Expert initialization function                                   |
 //+------------------------------------------------------------------+
@@ -19,8 +20,8 @@ int OnInit()
   {
 //--- create timer
    EventSetTimer(60);
-   handle_band = iBands(_Symbol,0,50,0,2,PRICE_CLOSE);
-   handle_rsi = iRSI(_Symbol,0,9,PRICE_CLOSE);
+   handle_band = iBands(_Symbol,0,ma_perid,0,2,PRICE_CLOSE);
+   //handle_rsi = iRSI(_Symbol,0,9,PRICE_CLOSE);
 //---
    return(INIT_SUCCEEDED);
   }
@@ -48,10 +49,10 @@ void OnTick()
    ArraySetAsSeries(up,true);
    ArraySetAsSeries(down,true);
    ArraySetAsSeries(rsi,true);
-   CopyBuffer(handle_band,0,0,100,middle);
-   CopyBuffer(handle_band,1,0,100,up);
-   CopyBuffer(handle_band,2,0,100,down);
-   CopyBuffer(handle_rsi,0,0,100,rsi);
+   CopyBuffer(handle_band,0,0,10,middle);
+   CopyBuffer(handle_band,1,0,10,up);
+   CopyBuffer(handle_band,2,0,10,down);
+   //CopyBuffer(handle_rsi,0,0,100,rsi);
    int high_index = iHighest(_Symbol,0,MODE_HIGH,5,0);
    int low_index = iLowest(_Symbol,0,MODE_LOW,5,0);
    
